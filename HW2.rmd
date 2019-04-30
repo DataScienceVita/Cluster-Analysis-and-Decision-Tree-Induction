@@ -1,0 +1,262 @@
+---
+title: "IST 707 HW 2 - Cluster Analaysis & Decision Tree Induction"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+## Loading the requied packages
+```{r,eval=TRUE, results='hide', message=FALSE, warning=FALSE}
+library(factoextra)
+library(stringr)
+library(tidyr)
+library(gridExtra)
+library(FunCluster)
+library(rpart)
+library(caret)
+library(rattle)
+```
+
+
+## Loading the data
+```{r}
+#Loading the data
+data<-read.csv("Disputed_Essay_data.csv")
+#str(data)
+```
+
+```{r}
+#Summary of the authors
+summary(data$author)
+```
+## Data Manipulation
+#### Creating a new column with a short form of the author name:
+```{r}
+data$owner <- ifelse(data$author == 'HM', 'HM', ifelse(data$author == 'Jay', "J", ifelse(data$author == 'Madison', 'M', ifelse(data$author == 'dispt', 'D', ifelse(data$author == 'Hamilton', 'H', NA)))))
+```
+
+#### Splitting the file name & number:
+```{r}
+data<-extract(data, filename, into = c("Name", "Num"), "([^(]+)\\s*[^0-9]+([0-9].).")
+```
+
+#### Creating a new column combining the author name along with the file number:
+```{r}
+data$file<-paste(data$owner,"-",data$Num)
+```
+
+#### Column to Index:
+```{r}
+rownames(data)<-data$file
+```
+
+#### Dropping the unwanted columns:
+```{r}
+data<-data[c(-(ncol(data)-1))]
+data<-data[c(-(ncol(data)))]
+data<-data[c(-2,-3)]
+```
+
+#### Moving aside the files authored by Jay and Hamilton+Madison:
+
+As we are only conserned about the authorship of the disputed articles and only among Hamilton and Madison. SO, we can go ahead and remove 'Jay' and 'HM'
+
+```{r}
+d <- data[data$author!="Jay",]
+data <- d[d$author!="HM",]
+```
+
+#### Dropping unused levels:
+```{r}
+data<-droplevels(data)
+
+```
+
+#### Sample data post manipulation:
+As we have made few changes to the data, let us have a look at it. 
+```{r}
+head(data, 5)
+```
+
+#### Euclidean distance calculation & visualization:
+The Eucldena distance is calculated to measure the distance between the vectors and in here we use it to measure the similarity between the files. As we can see from the below plot that the files intersecting at the blue point are very similar and the ones at the red are not. 
+```{r, warning=FALSE}
+distance<-get_dist(data)
+fviz_dist(distance, gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+```
+
+## K-means - Default  
+Clustering is an unsupervised learning technique. It is the task of grouping together a set of objects in a way that objects in the same cluster are more similar to each other than to objects in other clusters. Similarity is an amount that reflects the strength of relationship between two data objects. Clustering is mainly used for exploratory data mining. It is used in many fields such as machine learning, pattern recognition, image analysis, information retrieval, bio-informatics, data compression, and computer graphics.
+```{r}
+set.seed(42)
+def <- kmeans(data[c(-1)], centers = 5)
+t(table(data[,1],def$cluster))
+```
+From the above result we can see that the disputed articles have been well spread across the authors. The reson being, usage of many clusters. SO we have to find the optimal number of clusters to to gain the accurate answer. Let us have a look at the clusters that we have so far.  
+
+#### Plotting the CLusters
+```{r}
+fviz_cluster(def, data = data[c(-1)])
+```
+
+#### Finding optimal nnumber of clusters
+```{r}
+set.seed(123)
+wss <- function(k){
+  return(kmeans(data[c(-1)], k, nstart = 25)$tot.withinss)
+}
+
+k_values <- 1:10
+
+wss_values <- purrr::map_dbl(k_values, wss)
+
+plot(x = k_values, y = wss_values, 
+     type = "b", frame = F,
+     xlab = "Number of clusters K",
+     ylab = "Total within-clusters sum of square")
+```
+
+From the above graph, it is safe to say that 4 is the optimal number of clusters for this dataset.
+
+```{r}
+set.seed(48)
+def <- kmeans(data[c(-1)], centers = 4, nstart = 15, iter.max = 100)
+t <- t(table(data[,1],def$cluster))
+t
+```
+
+As we can see from the above result that the disputed articles were authored by Madison.
+
+#### Plotting the Clusters
+```{r}
+fviz_cluster(def, data = data[c(-1)])
+```
+
+#### Cluster Growth:
+Let us have a another look at the way the cluster formation varies with gradual increase in number of clusters.
+```{r}
+k2 <- kmeans(data[c(-1)], centers = 2, nstart = 25)
+k3 <- kmeans(data[c(-1)], centers = 3, nstart = 25)
+k4 <- kmeans(data[c(-1)], centers = 4, nstart = 25)
+k5 <- kmeans(data[c(-1)], centers = 5, nstart = 25)
+k6 <- kmeans(data[c(-1)], centers = 6, nstart = 25)
+k7 <- kmeans(data[c(-1)], centers = 7, nstart = 25)
+```
+
+#### Plotting the clusters
+```{r, fig.width=10, fig.height=8}
+p2 <- fviz_cluster(k2, geom = "point", data = data[c(-1)]) + ggtitle("k = 2")
+p3 <- fviz_cluster(k3, geom = "point",  data = data[c(-1)]) + ggtitle("k = 3")
+p4 <- fviz_cluster(k4, geom = "point",  data = data[c(-1)]) + ggtitle("k = 4")
+p5 <- fviz_cluster(k5, geom = "point",  data = data[c(-1)]) + ggtitle("k = 5")
+p6 <- fviz_cluster(k6, geom = "point",  data = data[c(-1)]) + ggtitle("k = 6")
+p7 <- fviz_cluster(k7, geom = "point",  data = data[c(-1)]) + ggtitle("k = 7")
+
+grid.arrange(p2, p3, p4, p5, p6, p7, nrow = 3)
+```
+
+# Hierarchical Clustering
+Hierarchical clustering, also known as hierarchical cluster analysis, is an algorithm that groups similar objects into groups called clusters. The endpoint is a set of clusters, where each cluster is distinct from each other cluster, and the objects within each cluster are broadly similar to each other.
+```{r}
+hac_output <- hclust(dist(data[c(-1)], method = "euclidean"), method = "ward.D2")
+```
+
+#### Plot the hierarchical clustering
+```{r, fig.width=12, fig.height=7}
+plot.new()
+plot(hac_output,main="Dendogram using HAC algorithm",xlab = "Author", ylab = "Euclidean Distance", cex = 0.6, hang = -1)
+rect.hclust(hac_output, k=4)
+```
+ 
+ Even here, we can clearly see that the disputed articles have been clustered together with the articles authored by Madison.
+ 
+# Decision Tree Algorithm  
+Decision Tree algorithm belongs to the family of supervised learning algorithms. Unlike other supervised learning algorithms, decision tree algorithm can be used for solving regression and classification problems too.
+
+The general motive of using Decision Tree is to create a training model which can use to predict class or value of target variables by learning decision rules inferred from prior data(training data).
+
+#### Train and Test Split
+
+Splitting the data into training and testing based on the author name.
+
+```{r}
+test <- data[data$author=="dispt",]
+train <- data[data$author!="dispt",]
+```
+
+#### Dropping Unused Levels
+
+```{r}
+train<-droplevels(train)
+test<-droplevels(test)
+```
+
+#### Training the model with the training dataset 
+
+Let us now perform decision tree analysis on this training data. But, in the prediction part, the 'type' we use is probability. 
+
+```{r}
+dt_model <- train(author ~ ., data = train, metric = "Accuracy", method = "rpart")
+dt_predict <- predict(dt_model, newdata = test, na.action = na.omit, type = "prob")
+head(dt_predict, 11)
+```
+
+Thus, with 93.75% probability the disputed articles belng to madison.
+
+#### Printing the final model
+```{r}
+print(dt_model)
+```
+
+#### Plotting the final model
+```{r}
+fancyRpartPlot(dt_model$finalModel)
+```
+
+#### Model Prediction - 'RAW'
+```{r}
+dt_predict2 <- predict(dt_model, newdata = test, type = "raw")
+print(dt_predict2)
+```
+
+From the predicting model of type 'RAW', we can reconfirm that the discputed articles have been authored by Madison.
+
+#### Model Tuning & Pruning
+```{r}
+dt_model_preprune <- train(author ~ ., data = train, method = "rpart",
+                           metric = "Accuracy",
+                           tuneLength = 8,
+                           control = rpart.control(minsplit = 50, minbucket = 20, maxdepth = 6))
+print(dt_model_preprune$finalModel)
+```
+
+#### Plotting the new model
+```{r}
+fancyRpartPlot(dt_model_preprune$finalModel)
+```
+
+In both the models above, we can clearly see that the word 'upon' plays a significant role. The frequency of this word seems to determine the authorship of the whole file (surprisingly!). And the tuning and pruning has increased the required frquency from 0.019 to 0.024. If it's greater than the said value, then the file belongs to Hamilton else, its writting by Madison.
+
+#### Cross-Validation  
+Cross-validation is a statistical method used to estimate the skill of machine learning models.
+
+It is commonly used in applied machine learning to compare and select a model for a given predictive modeling problem because it is easy to understand, easy to implement, and results in skill estimates that generally have a lower bias than other methods.
+
+```{r}
+tr_control <- trainControl(method = "cv", number = 3)
+
+tr_control <- trainControl(method = "cv", number = 3)
+dt_model_cv <- train(author ~ ., data = train, method = "rpart",
+                           metric = "Accuracy",
+                           tuneLength = 8,
+                           control = rpart.control(minsplit = 30, minbucket = 10, maxdepth = 5, cp =  0.5, trcontrol = tr_control,na.rm = T))
+
+print(dt_model_cv$finalModel)
+dt_predict3 <- predict(dt_model_cv, newdata = test, type = "raw")
+print(dt_predict3)
+```
+
+# Conclusion
+So we can hereby conclude that, the disputed articles were authored by Madison.
